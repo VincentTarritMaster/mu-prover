@@ -49,8 +49,8 @@ def render(d: Diagnostic): Unit = {
     try
       val program = Parser.parse(s)
       success(program.toString)
-      // val (elaborated, result) = Typer.check(program)
-      // success(s"${elaborated.toString.disambuiguated} : ${result}")
+      val (elaborated, result) = Typer.check(program)
+      success(s"${elaborated.toString.disambuiguated} : ${result}")
     catch
       case e: Diagnostic => render(e)
   }
