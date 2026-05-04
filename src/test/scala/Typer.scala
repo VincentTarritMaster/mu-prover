@@ -32,12 +32,12 @@ final class TyperTests extends munit.FunSuite:
     val (_, result) = Typer.check(program)
     assertEquals(result, Type.Unit)
 
-  test("check polymorphic identity 1"):
+  test("check inferred parameter type"):
     val program = Parser.parse(SourceFile("test", "((x) => x) (! : ())"))
     val (_, result) = Typer.check(program)
     assertEquals(result, Type.Unit)
 
-  test("check polymorphic identity 1"):
+  test("check polymorphic identity with inferred parameter"):
     val program = Parser.parse(SourceFile("test", "([T] => (x) => x) (! : ())"))
     val (_, result) = Typer.check(program)
     assertEquals(result, Type.Unit)
