@@ -9,6 +9,14 @@ final class Environment private (
     terms: Map[Syntax.TermIdentifier, Type], types: List[Syntax.TypeIdentifier]
 ):
 
+  /** The term bindings visible in this environment. */
+  def termBindings: Iterable[(Syntax.TermIdentifier, Type)] =
+    terms
+
+  /** The number of term bindings visible in this environment. */
+  def termBindingCount: Int =
+    terms.size
+
   /** Returns the type of the variable `x`, if any. */
   def typeOf(n: Syntax.TermIdentifier): Option[Type] =
     terms.get(n)
