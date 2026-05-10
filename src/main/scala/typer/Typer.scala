@@ -20,80 +20,71 @@ final class Typer private ():
    */
   private def visit(
       syntax: Syntax[Syntax.Term], expected: Option[Type], environment: Environment
-  ): Type = {
-    
+  ): Type =
     syntax.value match
+      case ti: Syntax.TermIdentifier =>
+        val tpe = environment.typeOf(ti).getOrElse {
+          throw Diagnostic(s"unbound variable: ${ti.value}", syntax.span)
+        }
+        expected.foreach(constrain(syntax, tpe, _, environment))
+        tpe
 
-    case ti: Syntax.TermIdentifier =>
-      val tpe = environment.typeOf(ti).getOrElse {
-        throw Diagnostic(s"unbound variable: ${ti.value}", syntax.span)
-      }
-      expected.foreach(constrain(syntax, tpe, _, environment))
-      tpe
+      case Syntax.TermAbstraction(param, ascription, body) =>
+        val paramType = visit(ascription, environment)
+        val newEnv = environment.introducing(param.value, paramType)
+        val bodyType = visit(body, None, newEnv)
 
-    case Syntax.TermAbstraction(param, ascription, body) =>
-      val paramType = visit(ascription, environment)
-      val newEnv = environment.introducing(param.value, paramType)
-      val bodyType = visit(body, None, newEnv)
+        val funType = Type.Arrow(paramType, bodyType)
+        expected.foreach(constrain(syntax, funType, _, environment))
+        funType
 
-      val funType = Type.Arrow(paramType, bodyType)
-      expected.foreach(constrain(syntax, funType, _, environment))
-      funType
+      case Syntax.TermApplication(fun, arg) =>
+        val funType = visit(fun, None, environment)
+        val argType = visit(arg, None, environment)
 
-    case Syntax.TermApplication(fun, arg) =>
-      val funType = visit(fun, None, environment)
-      val argType = visit(arg, None, environment)
+        val resultType = fresh()
+        constrain(syntax, funType, Type.Arrow(argType, resultType), environment)
+        expected.foreach(constrain(syntax, resultType, _, environment))
+        resultType
 
-      val resultType = fresh()
+      case Syntax.Ascription(term, tpeSyntax) =>
+        val tpe = visit(tpeSyntax, environment)
+        visit(term, Some(tpe), environment)
+        expected.foreach(constrain(syntax, tpe, _, environment))
+        tpe
 
-      constrain(syntax, funType, Type.Arrow(argType, resultType), environment)
-      expected.foreach(constrain(syntax, resultType, _, environment))
+      case Syntax.TypeAbstraction(typeParam, body) =>
+        val newEnv = environment.introducing(typeParam.value)
+        val bodyType = visit(body, None, newEnv)
 
-      resultType
+        val result = Type.ForAll(bodyType)
+        expected.foreach(constrain(syntax, result, _, environment))
+        result
 
-    case Syntax.Ascription(term, tpeSyntax) =>
-      val tpe = visit(tpeSyntax, environment)
-      val termType = visit(term, Some(tpe), environment)
+      case Syntax.TypeApplication(term, tpeSyntax) =>
+        val funType = visit(term, None, environment)
+        val argType = visit(tpeSyntax, environment)
 
-      constrain(term, termType, tpe, environment)
-      expected.foreach(constrain(syntax, tpe, _, environment))
+        funType match
+          case fa: Type.ForAll =>
+            val instantiated = fa(argType)
+            expected.foreach(constrain(syntax, instantiated, _, environment))
+            instantiated
 
-      tpe
+          case _ =>
+            val resultType = fresh()
+            constrain(syntax, funType, Type.ForAll(resultType), environment)
+            resultType
 
-    case Syntax.TypeAbstraction(typeParam, body) =>
-      val newEnv = environment.introducing(typeParam.value)
-      val bodyType = visit(body, None, newEnv)
-
-      val result = Type.ForAll(bodyType)
-      expected.foreach(constrain(syntax, result, _, environment))
-      result
-
-    case Syntax.TypeApplication(term, tpeSyntax) =>
-      val funType = visit(term, None, environment)
-      val argType = visit(tpeSyntax, environment)
-
-      funType match
-        case fa @ Type.ForAll(_) =>
-          val instantiated = fa(argType)        
-          expected.foreach(constrain(syntax, instantiated, _, environment))
-          instantiated
-
-        case _ =>
-          val resultType = fresh()
-          constrain(syntax, funType, Type.ForAll(resultType), environment)
-          resultType
-
-    case Syntax.Assertion =>
-      expected.foreach(constrain(syntax, Type.Unit, _, environment))
-      Type.Unit
-  }
+      case Syntax.Assertion =>
+        expected.foreach(constrain(syntax, Type.Unit, _, environment))
+        Type.Unit
 
   /** Returns the type of `syntax`, reading the type of variables from `environment`. */
   private def visit(
-    syntax: Syntax[Syntax.Type],
-    environment: Environment
-  ): Type = {
-    (syntax.value: Syntax.Type) match
+      syntax: Syntax[Syntax.Type], environment: Environment
+  ): Type =
+    syntax.value match
       case Syntax.UnitType =>
         Type.Unit
 
@@ -103,10 +94,7 @@ final class Typer private ():
         }
 
       case Syntax.Arrow(from, to) =>
-        Type.Arrow(
-          visit(from, environment),
-          visit(to, environment)
-        )
+        Type.Arrow(visit(from, environment), visit(to, environment))
 
       case Syntax.ForAll(param, body) =>
         val newEnv = environment.introducing(param.value)
@@ -117,22 +105,21 @@ final class Typer private ():
 
       case Syntax.ElidedType =>
         fresh()
-  }
 
   /** Solves the constraints that have been recorded by `visit` and returns a substitution table
    *  assigning the unification variables that were introduced.
    */
-  private def solveConstraints(): Solution = {
+  private def solveConstraints(): Solution =
     constraints.foldLeft(Solution()) { (solution, constraint) =>
       unify(constraint.found, constraint.expected, solution)
         .orElse(coerce(constraint, solution))
         .getOrElse {
           val found = solution(constraint.found)
           val expected = solution(constraint.expected)
-          throw Diagnostic(s"type mismatch: found ${found}, expected ${expected}", constraint.term.span)
+          throw Diagnostic(
+            s"type mismatch: found ${found}, expected ${expected}", constraint.term.span)
         }
     }
-  }
 
   /** Returns a substitution table `σ` such that `σ(lhs) = σ(rhs)`, or `None` if no such
    *  substitution table can be constructed. */
@@ -217,7 +204,7 @@ final class Typer private ():
                 None
           }
 
-    val fuel = constraint.environment.termBindingCount + 2
+    val fuel = 3
     inhabit(constraint.expected, solution, fuel, true).map { (term, state) =>
       state.updated(constraint.term, term)
     }
